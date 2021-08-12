@@ -1,0 +1,77 @@
+---
+apiVersion: appmesh.k8s.aws/v1beta2
+kind: VirtualGateway
+metadata:
+  name: nlb-gw
+  namespace: my-apps
+spec:
+  namespaceSelector:
+    matchLabels:
+      gateway: nlb-gw
+  podSelector:
+    matchLabels:
+      app: nlb-gw
+  listeners:
+    - portMapping:
+        port: 8443
+        protocol: http
+  logging:
+    accessLog:
+      file:
+        path: /dev/stdout
+---
+apiVersion: appmesh.k8s.aws/v1beta2
+kind: GatewayRoute
+metadata:
+  name: gateway-route-frontend
+  namespace: my-apps
+spec:
+  httpRoute:
+    match:
+      prefix: "/"
+    action:
+      target:
+        virtualService:
+          virtualServiceRef:
+            name: django
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nlb-gw
+  namespace: my-apps
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
+    service.beta.kubernetes.io/aws-load-balancer-subnets: subnet-077945d62638c1b6a, subnet-01dbf269b1fc50230
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8443
+      name: http
+  selector:
+    app: nlb-gw
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nlb-gw
+  namespace: my-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nlb-gw
+  template:
+    metadata:
+      labels:
+        app: nlb-gw
+    spec:
+      serviceAccountName: prodcatalog-envoy-proxies
+      securityContext:
+        fsGroup: 65534
+      containers:
+        - name: envoy
+          image: 840364872350.dkr.ecr.us-west-1.amazonaws.com/aws-appmesh-envoy:v1.15.1.0-prod
+          ports:
+            - containerPort: 8443
